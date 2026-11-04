@@ -11,7 +11,31 @@
 /// therefore the right trade: a per-model table would be guesswork for every
 /// model not in the measured set.
 pub fn estimate_tokens(text: &str) -> usize {
-    (text.split_whitespace().count() as f32 * 1.8).ceil() as usize
+    let word_estimate = (text.split_whitespace().count() as f32 * 1.8).ceil() as usize;
+    // Japanese and other CJK transcripts commonly contain no spaces, so a
+    // word-only estimate can treat an hour-long transcript as a handful of
+    // tokens and incorrectly send it through the single-call path.
+    word_estimate.max(text.chars().filter(|character| is_cjk(*character)).count())
+}
+
+fn is_cjk(character: char) -> bool {
+    matches!(
+        character,
+        '\u{3040}'..='\u{30ff}'
+            | '\u{3400}'..='\u{4dbf}'
+            | '\u{4e00}'..='\u{9fff}'
+            | '\u{f900}'..='\u{faff}'
+            | '\u{ac00}'..='\u{d7af}'
+    )
+}
+
+/// Approximate the word budget used by the fixed-size chunk configuration.
+/// Two CJK characters per word keeps unspaced transcripts conservative
+/// without changing the established English/French chunk sizes.
+fn chunk_units(text: &str) -> usize {
+    let words = text.split_whitespace().count();
+    let cjk = text.chars().filter(|character| is_cjk(*character)).count();
+    words.max(cjk.div_ceil(2))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,7 +81,7 @@ pub fn chunk_turns(turns: &[String], config: ChunkConfig) -> Vec<String> {
     if turns.is_empty() {
         return Vec::new();
     }
-    let words = |text: &str| text.split_whitespace().count();
+    let words = chunk_units;
     let total: usize = turns.iter().map(|turn| words(turn)).sum();
     if total <= config.chunk_words {
         return vec![turns.join("\n")];
@@ -97,6 +121,12 @@ pub fn chunk_turns(turns: &[String], config: ChunkConfig) -> Vec<String> {
 
 /// Split a transcript into overlapping word chunks for the map stage.
 pub fn chunk_transcript(text: &str, config: ChunkConfig) -> Vec<String> {
+    let cjk_chars = text.chars().filter(|character| is_cjk(*character)).count();
+    let whitespace_words = text.split_whitespace().count();
+    if cjk_chars.div_ceil(2) > whitespace_words {
+        return chunk_unspaced_text(text, config);
+    }
+
     let words: Vec<&str> = text.split_whitespace().collect();
     if words.len() <= config.chunk_words {
         return vec![text.to_string()];
@@ -118,14 +148,41 @@ pub fn chunk_transcript(text: &str, config: ChunkConfig) -> Vec<String> {
     chunks
 }
 
+fn chunk_unspaced_text(text: &str, config: ChunkConfig) -> Vec<String> {
+    let characters: Vec<char> = text.chars().collect();
+    let chunk_chars = config.chunk_words.saturating_mul(2).max(1);
+    if characters.len() <= chunk_chars {
+        return vec![text.to_string()];
+    }
+    let overlap_chars = config.chunk_overlap_words.saturating_mul(2);
+    let step = chunk_chars.saturating_sub(overlap_chars).max(1);
+    let mut chunks = Vec::new();
+    let mut start = 0;
+    while start < characters.len() {
+        let end = (start + chunk_chars).min(characters.len());
+        chunks.push(characters[start..end].iter().collect());
+        if end == characters.len() {
+            break;
+        }
+        start += step;
+    }
+    chunks
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{ChunkConfig, chunk_transcript, chunk_turns, estimate_tokens};
+    use super::{ChunkConfig, chunk_transcript, chunk_turns, chunk_units, estimate_tokens};
 
     #[test]
     fn estimate_tokens_scales_with_words() {
         assert_eq!(estimate_tokens(""), 0);
         assert_eq!(estimate_tokens(&"word ".repeat(10)), 18);
+    }
+
+    #[test]
+    fn estimate_tokens_counts_unspaced_japanese_text() {
+        let text = "本日の会議では新製品の発売日と担当者を決定しました。";
+        assert!(estimate_tokens(text) >= text.chars().count() - 2);
     }
 
     #[test]
@@ -157,6 +214,18 @@ mod tests {
         let ollama = chunk_transcript(&text, ChunkConfig::OLLAMA);
         let apple = chunk_transcript(&text, ChunkConfig::APPLE_INTELLIGENCE);
         assert!(apple.len() > ollama.len());
+    }
+
+    #[test]
+    fn long_japanese_transcript_is_split_for_apple_intelligence() {
+        let sentence = "本日の会議では新製品の発売日と担当者を決定しました。";
+        let text = sentence.repeat(600);
+        let chunks = chunk_transcript(&text, ChunkConfig::APPLE_INTELLIGENCE);
+        assert!(chunks.len() > 1);
+        assert!(chunks.iter().all(|chunk| {
+            chunk.chars().count() <= ChunkConfig::APPLE_INTELLIGENCE.chunk_words * 2
+        }));
+        assert!(chunks.iter().any(|chunk| chunk.contains("発売日")));
     }
 
     fn tight(chunk_words: usize, overlap: usize) -> ChunkConfig {
@@ -220,5 +289,26 @@ mod tests {
             "overlap should keep the trailing turn"
         );
         assert!(chunks[1].contains("[0:20] Me:"));
+    }
+
+    #[test]
+    fn sixty_minute_japanese_meeting_packs_into_bounded_turn_chunks() {
+        let utterance = "新製品の発売日は十二月で、田中さんが資料を準備します。";
+        let turns: Vec<String> = (0..360)
+            .map(|minute| format!("[{minute}:00] Them: {}", utterance.repeat(4)))
+            .collect();
+        let chunks = chunk_turns(&turns, ChunkConfig::APPLE_INTELLIGENCE);
+        assert!(chunks.len() > 1);
+        assert!(chunks.iter().all(|chunk| {
+            chunk_units(chunk)
+                <= ChunkConfig::APPLE_INTELLIGENCE.chunk_words + chunk_units(&turns[0])
+        }));
+        assert_eq!(
+            chunks
+                .iter()
+                .filter(|chunk| chunk.contains("[359:00] Them:"))
+                .count(),
+            1
+        );
     }
 }
