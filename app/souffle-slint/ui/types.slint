@@ -9,6 +9,7 @@ export { TypefaceWeight }
 export enum RecordingMode { idle, dictation, meeting }
 export enum AppBranchFallback { polish-disabled, app-unavailable, no-match, invalid-pattern, missing-template }
 export enum AppBranchTestPhase { idle, waiting, resolving, result }
+export enum MeetingDeleteBlockReason { starting, recording, finalizing }
 
 // Where the system-audio leg of the meeting being recorded stands, from
 // souffle_lib's live `SystemAudioStatus` snapshot (system-audio.ts's
@@ -145,3 +146,8 @@ export enum AppleIntelligenceUnavailableReason {
     unsupported-platform,
     unknown,
 }
+
+export enum CompressionModelPhase { not-downloaded, queued, deleting, downloading, preparing, ready, failed }
+export enum CompressionFailureReason { cancelled, interrupted-by-recording, capture-busy, runtime-busy, source-changed, deleted, ongoing, empty-transcript, invalid-rate, model-unavailable, already-running, model-busy, model-removal, model-preparation, model-validation, inference, database, runtime }
+export enum SummaryFailureReason { database, empty-transcript, provider, generation }
+export enum CompactJobPhase { idle, waiting-for-model, queued, compressing, failed, source-changed, interrupted-by-recording }

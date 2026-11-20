@@ -190,6 +190,7 @@ mod tests {
         let db = Arc::new(Database::open(&directory.path().join("meeting.db")).unwrap());
         let started = chrono::Utc::now();
         let acc = Arc::new(Mutex::new(Some(MeetingAccumulator {
+            write_lease: None,
             id: "two-sources".into(),
             title: "Two sources".into(),
             existing_segments: vec![],
@@ -656,6 +657,29 @@ mod tests {
             newest.absolute_position().y,
             scroll.absolute_position().y
         );
+    }
+
+    #[test]
+    fn transcript_separators_start_after_the_word_without_overlap() {
+        let window = meeting_window();
+        for separator in ["?", "? ", " ? ", "\u{a0}? ", "\u{202f}? ", ", ", ".", " "] {
+            let live_state = Arc::new(Mutex::new(LiveTranscript::new()));
+            apply_live_segment(
+                &window,
+                &live_state,
+                &final_seg(&format!("va{separator}suite"), 0.0, Speaker::Me),
+            );
+            settle();
+
+            let word = text_element(&window, "va");
+            let trailing = text_element(&window, separator);
+            let word_end = word.absolute_position().x + word.size().width;
+            let trailing_start = trailing.absolute_position().x;
+            assert!(
+                (word_end - trailing_start).abs() < 0.1,
+                "separator {separator:?} at x={trailing_start} must follow word ending at x={word_end}"
+            );
+        }
     }
 
     // SOU-256 AC4: dictation shares the view; its single text surface must

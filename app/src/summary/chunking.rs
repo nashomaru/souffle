@@ -10,13 +10,7 @@
 /// only costs a little chunking margin. A single conservative ratio is
 /// therefore the right trade: a per-model table would be guesswork for every
 /// model not in the measured set.
-pub fn estimate_tokens(text: &str) -> usize {
-    let word_estimate = (text.split_whitespace().count() as f32 * 1.8).ceil() as usize;
-    // Japanese and other CJK transcripts commonly contain no spaces, so a
-    // word-only estimate can treat an hour-long transcript as a handful of
-    // tokens and incorrectly send it through the single-call path.
-    word_estimate.max(text.chars().filter(|character| is_cjk(*character)).count())
-}
+pub use souffle_schema::estimate_tokens;
 
 fn is_cjk(character: char) -> bool {
     matches!(

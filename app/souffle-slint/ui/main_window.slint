@@ -1,9 +1,18 @@
+import { CompressionUi, CompactLine } from "compression.slint";
+export { CompressionUi, CompactLine }
+import { SummarizationUi } from "summarization.slint";
+export { SummarizationUi }
+import { CompressionModelPhase, CompactJobPhase } from "types.slint";
+export { CompressionModelPhase, CompactJobPhase, CompressionFailureReason, SummaryFailureReason } from "types.slint";
 import { AppText, AppTextInput, Typography, TypographyStyle } from "@typography";
 import { TypographySpecimen } from "@typography";
 export { TypographySpecimen }
 import { TypefaceWeight } from "types.slint";
 export { TypefaceWeight }
 import { IdleView } from "idle_view.slint";
+import { ActionGuards, MeetingDeletePermission } from "action_guards.slint";
+import { MeetingDeleteBlockReason } from "types.slint";
+export { ActionGuards, MeetingDeletePermission, MeetingDeleteBlockReason }
 import { RecordingView } from "recording_view.slint";
 import { MeetingDetail, MeetingParticipantChip, MeetingMeta } from "meeting_detail.slint";
 import { SettingsView } from "settings_view.slint";
@@ -177,6 +186,7 @@ export component MainWindow inherits Window {
     in property <[StructuredActionItem]> meeting-detail-summary-action-items;
     in property <[string]> meeting-detail-summary-open-questions;
     in property <bool> meeting-detail-summary-is-generating: false;
+    in property <string> meeting-detail-summary-generation-id;
     in property <string> meeting-detail-summary-generation-progress: "";
     in property <string> meeting-detail-summary-generation-error: "";
     in property <[string]> meeting-detail-summary-available-models;
@@ -775,6 +785,7 @@ export component MainWindow inherits Window {
         wake-resume-notice: root.wake-resume-notice;
         wake-resume-notice-dismissed => { root.wake-resume-notice-dismissed(); }
         delete-error: root.meeting-detail-delete-error;
+        delete-permission: ActionGuards.meeting-delete(root.active-meeting-id, ActionGuards.revision);
         export-error: root.meeting-detail-export-error;
         audio-export-error: root.meeting-detail-audio-export-error;
         back-requested => { root.meeting-detail-back(); }
